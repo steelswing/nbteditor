@@ -77,6 +77,21 @@ public final class NBTOutputStream implements Closeable {
     }
 
     /**
+     * Creates a new <code>NBTOutputStream</code>, which will write data to the
+     * specified underlying output stream.
+     *
+     * @param os
+     * The output stream.
+     * @param compress use gzip comress
+     * @throws IOException
+     * if an I/O error occurs.
+     */
+    public NBTOutputStream(OutputStream os, boolean compress) throws IOException {
+        this.os = new DataOutputStream(compress ? new OptimizedGZIPOutputStream(os) : os);
+    }
+
+
+    /**
      * Writes a tag.
      *
      * @param tag

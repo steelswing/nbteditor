@@ -2,6 +2,7 @@
 package vic.nbt;
 
 import com.formdev.flatlaf.FlatDarkLaf;
+import com.ning.compress.gzip.OptimizedGZIPOutputStream;
 import java.awt.BorderLayout;
 import java.awt.Component;
 import java.awt.Container;
@@ -25,7 +26,11 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
+import java.lang.reflect.Field;
+import java.nio.charset.Charset;
 import java.util.Vector;
+import java.util.zip.GZIPOutputStream;
 import javax.swing.ImageIcon;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
@@ -45,6 +50,7 @@ import javax.swing.JTextField;
 import javax.swing.JToolBar;
 import javax.swing.JTree;
 import javax.swing.KeyStroke;
+import javax.swing.UIManager;
 import javax.swing.event.TreeSelectionEvent;
 import javax.swing.event.TreeSelectionListener;
 import javax.swing.filechooser.FileNameExtensionFilter;
@@ -63,7 +69,24 @@ public class NBTEditor {
     public static JFrame frame;
     public static JMenuBar menuBar;
 
-    public static JMenuItem itemNew, itemOpen, itemReload, itemSave, itemSaveAs, itemQuit, itemCut, itemCopy, itemPaste, itemDelete, itemRename, itemEdit, itemMoveUp, itemMoveDown, itemFind, itemFindNext, itemAbout;
+    public static JMenuItem itemNew,
+            itemOpen,
+            itemReload,
+            itemSave,
+            itemSaveAs,
+            itemQuit,
+            itemCut,
+            itemCopy,
+            itemPaste,
+            itemDelete,
+            itemRename,
+            itemEdit,
+            itemMoveUp,
+            itemMoveDown,
+            itemFind,
+            itemFindNext,
+            itemAbout,
+            itemCompressOption;
     public static JToolBar toolBar;
     public static JButton buttonReload, buttonNew, buttonOpen, buttonSave, buttonRename, buttonEdit, buttonDelete, buttonTagByte, buttonTagShort, buttonTagInt, buttonTagLong, buttonTagFloat, buttonTagDouble, buttonTagByteArray, buttonTagIntArray, buttonTagString, buttonTagList, buttonTagCompound;
 
@@ -72,16 +95,32 @@ public class NBTEditor {
 
     public static JTree nbtTree;
     public static TagNodeBase copy;
-    public static String version = "1.2";
+    public static String version = "1.3";
 
     public static File file;
     public static File lastDirectory;
     public static boolean modified = false;
 
+    public static NBTComressType comressType = NBTComressType.OPTIMIZED_GZIP_COMPRESS;
+
     public static void main(String[] args) {
+
+        System.setProperty("JRootPane.useWindowDecorations", "true");
+        System.setProperty("flatlaf.titleBarShowIcon", "false");
+        System.setProperty("swing.aatext", "true");
         System.setProperty("sun.java2d.noddraw", Boolean.TRUE.toString());
+
         try {
-            javax.swing.UIManager.setLookAndFeel(FlatDarkLaf.class.getCanonicalName());
+            System.setProperty("file.encoding", "UTF-8");
+            Field charset = Charset.class.getDeclaredField("defaultCharset");
+            charset.setAccessible(true);
+            charset.set(null, null);
+        } catch (Throwable e) {
+            System.out.println("Failed to set charset: " + e.getMessage());
+        }
+
+        try {
+             UIManager.setLookAndFeel(FlatDarkLaf.class.getName());
         } catch (Exception ex) {
         }
 
@@ -125,6 +164,8 @@ public class NBTEditor {
         itemFindNext = new JMenuItem("Find Next", new ImageIcon(Utils.getImage("/vic/nbt/resources/magnifier_go.png")));
         itemAbout = new JMenuItem("About", new ImageIcon(Utils.getImage("/vic/nbt/resources/information.png")));
 
+        itemCompressOption = new JMenuItem("Compress Option", new ImageIcon(Utils.getImage("/vic/nbt/resources/compress_option.png")));
+
         itemNew.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_N, InputEvent.CTRL_DOWN_MASK));
         itemOpen.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_O, InputEvent.CTRL_DOWN_MASK));
         itemReload.setAccelerator(KeyStroke.getKeyStroke(KeyEvent.VK_R, InputEvent.CTRL_DOWN_MASK));
@@ -160,6 +201,8 @@ public class NBTEditor {
         itemFindNext.addActionListener(EventListener.instance);
         itemAbout.addActionListener(EventListener.instance);
 
+        itemCompressOption.addActionListener(EventListener.instance);
+
         JMenu menuFile = new JMenu("File");
         JMenu menuEdit = new JMenu("Edit");
         JMenu menuSearch = new JMenu("Search");
@@ -184,6 +227,8 @@ public class NBTEditor {
         menuEdit.addSeparator();
         menuEdit.add(itemMoveUp);
         menuEdit.add(itemMoveDown);
+        menuEdit.addSeparator();
+        menuEdit.add(itemCompressOption);
 
         menuSearch.add(itemFind);
         menuSearch.add(itemFindNext);
@@ -356,17 +401,33 @@ public class NBTEditor {
         updateUI();
         JScrollPane jScrollPane = new JScrollPane(nbtTree);
         panel1.add(jScrollPane, BorderLayout.CENTER);
-        frame.add(menuBar, BorderLayout.PAGE_START);
+        
+        frame.setJMenuBar(menuBar);
+//        frame.add(menuBar, BorderLayout.PAGE_START);
         frame.add(panel1, BorderLayout.CENTER);
         frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
-
+        
         updateName();
         frame.setLocationRelativeTo(null);
+
+        try {
+            frame.setIconImage(Utils.getImage("/icon.png"));
+        } catch (Exception e) {
+        }
+
         frame.setVisible(true);
 
+        // fix
+        if (args.length > 0) {
+            file = new File(args[0]);
+            reload();
+        }
     }
 
+    protected static volatile boolean useEnterAsSave = false;
+
     public static void editCell() {
+        useEnterAsSave = false;
         if (!(nbtTree.getLastSelectedPathComponent() instanceof TagLeaf)) {
             return;
         }
@@ -387,18 +448,21 @@ public class NBTEditor {
             public boolean dispatchKeyEvent(KeyEvent e) {
                 if (e.getKeyCode() == KeyEvent.VK_ESCAPE) {
                     edit.dispose();
+                    KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(this);
                     return false;
                 }
-                if (e.getKeyCode() == KeyEvent.VK_ENTER) {
+                if (useEnterAsSave && e.getKeyCode() == KeyEvent.VK_ENTER) {
                     try {
                         node.setValue(field.getText());
                         ((DefaultTreeModel) nbtTree.getModel()).nodeChanged(node);
                         edit.dispose();
                         modified = true;
                         updateName();
-                    } catch (Exception e2) {
+                    } catch (Exception ex) {
                         Toolkit.getDefaultToolkit().beep();
                     }
+
+                    KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(this);
                 }
                 return false;
             }
@@ -426,7 +490,7 @@ public class NBTEditor {
                 }
             }
         });
-        panel.add(field);
+        panel.add(new JScrollPane(field));
         JButton cancel = new JButton("Cancel");
         cancel.addMouseListener(new MouseAdapter() {
             @Override
@@ -441,10 +505,11 @@ public class NBTEditor {
                 try {
                     node.setValue(field.getText());
                     ((DefaultTreeModel) nbtTree.getModel()).nodeChanged(node);
-                    edit.dispose();
                     modified = true;
                     updateName();
-                } catch (Exception e2) {
+
+                    edit.dispose();
+                } catch (Exception ex) {
                     Toolkit.getDefaultToolkit().beep();
                 }
             }
@@ -459,6 +524,15 @@ public class NBTEditor {
         edit.setSize(new Dimension(350, 160));
         edit.setLocationRelativeTo(frame);
         edit.setVisible(true);
+
+        new Thread(() -> {
+            try {
+                Thread.sleep(1000);
+                useEnterAsSave = true;
+            } catch (InterruptedException ex) {
+            }
+        }).start();
+
     }
 
     public static String valueFilter = "";
@@ -686,6 +760,7 @@ public class NBTEditor {
                 updateName();
                 updateUI();
             }
+            comressType = NBTComressType.OPTIMIZED_GZIP_COMPRESS;
         } catch (Exception e) {
             try {
                 try (NBTInputStream is = new NBTInputStream(new FileInputStream(file), false)) {
@@ -696,6 +771,7 @@ public class NBTEditor {
                     updateName();
                     updateUI();
                 }
+                comressType = NBTComressType.NO_COMRESS;
             } catch (IOException e1) {
                 e.printStackTrace();
                 JOptionPane.showMessageDialog(frame, "Error while opening file " + file.getName() + ":\nIOException Maybe the file is missing or damadged.", "Error", JOptionPane.ERROR_MESSAGE);
@@ -718,7 +794,23 @@ public class NBTEditor {
         }
 
         try {
-            NBTOutputStream os = new NBTOutputStream(new FileOutputStream(file));
+            FileOutputStream fileOutputStream = new FileOutputStream(file);
+            OutputStream outputStream = null;
+            switch (comressType) {
+                case GZIP_COMRESS:
+                    outputStream = new GZIPOutputStream(fileOutputStream);
+                    break;
+                case OPTIMIZED_GZIP_COMPRESS:
+                    outputStream = new OptimizedGZIPOutputStream(fileOutputStream);
+                    break;
+                case NO_COMRESS:
+                default:
+                    outputStream = fileOutputStream;
+                    break;
+            }
+            System.out.println("Save: " + file + ", Compress: " + comressType);
+
+            NBTOutputStream os = new NBTOutputStream(outputStream, false);
             os.writeTag(((TagNodeBase) nbtTree.getModel().getRoot()).toNBTTag());
             os.close();
         } catch (IOException e) {

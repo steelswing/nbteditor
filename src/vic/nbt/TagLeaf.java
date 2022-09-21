@@ -88,22 +88,22 @@ public class TagLeaf implements TagNodeBase {
     public void setValue(String value) throws Exception {
         switch (tagType) {
             case NBTConstants.TYPE_BYTE:
-                this.value = Byte.parseByte(value);
+                this.value = Byte.parseByte(value.replaceAll("\\s+",""));
                 break;
             case NBTConstants.TYPE_SHORT:
-                this.value = Short.parseShort(value);
+                this.value = Short.parseShort(value.replaceAll("\\s+",""));
                 break;
             case NBTConstants.TYPE_INT:
-                this.value = Integer.parseInt(value);
+                this.value = Integer.parseInt(value.replaceAll("\\s+",""));
                 break;
             case NBTConstants.TYPE_DOUBLE:
-                this.value = Double.parseDouble(value);
+                this.value = Double.parseDouble(value.replaceAll("\\s+",""));
                 break;
             case NBTConstants.TYPE_LONG:
-                this.value = Long.parseLong(value);
+                this.value = Long.parseLong(value.replaceAll("\\s+",""));
                 break;
             case NBTConstants.TYPE_FLOAT:
-                this.value = Float.parseFloat(value);
+                this.value = Float.parseFloat(value.replaceAll("\\s+",""));
                 break;
             case NBTConstants.TYPE_STRING:
                 this.value = value;

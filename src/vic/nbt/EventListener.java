@@ -1,20 +1,41 @@
 
 package vic.nbt;
 
+import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.Component;
+import java.awt.Container;
 import java.awt.Desktop;
+import java.awt.Dimension;
+import java.awt.KeyEventDispatcher;
+import java.awt.KeyboardFocusManager;
+import java.awt.Toolkit;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.awt.event.KeyEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.awt.event.WindowEvent;
 import java.io.IOException;
 import java.net.URISyntaxException;
+import java.util.ArrayList;
+import java.util.Enumeration;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import javax.swing.AbstractButton;
+import javax.swing.ButtonGroup;
+import javax.swing.JButton;
+import javax.swing.JDialog;
 import javax.swing.JEditorPane;
 import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JRadioButton;
 import javax.swing.event.HyperlinkEvent;
 import javax.swing.event.HyperlinkListener;
 import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreePath;
 import org.jnbt.NBTConstants;
+import vic.nbt.layouts.VerticalLayout;
 
 public class EventListener implements ActionListener {
 
@@ -22,6 +43,124 @@ public class EventListener implements ActionListener {
 
     @Override
     public void actionPerformed(ActionEvent e) {
+        if (e.getSource() == NBTEditor.itemCompressOption) {
+            // open new modal window
+            final JDialog edit = new JDialog(NBTEditor.frame);
+            edit.setTitle(NBTEditor.itemCompressOption.getText());
+            edit.setModal(true);
+            JPanel panel = new JPanel();
+
+            Map<NBTComressType, JRadioButton> buttonsMap = new LinkedHashMap<>();
+            for (NBTComressType value : NBTComressType.values()) {
+                buttonsMap.put(value, new JRadioButton(value.name));
+            }
+            ArrayList<JRadioButton> buttonsList = new ArrayList<>(buttonsMap.values());
+
+            ButtonGroup buttonGroup = new ButtonGroup();
+            for (JRadioButton button : buttonsList) {
+                buttonGroup.add(button);
+            }
+            // set selected current type
+            buttonGroup.clearSelection();
+            buttonsMap.get(NBTEditor.comressType).setSelected(true);
+
+            MouseAdapter okEvent = new MouseAdapter() {
+                private NBTComressType tempCompressType = NBTEditor.comressType;
+
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    try {
+                        int index = 0;
+
+                        for (Enumeration<AbstractButton> enumeration = buttonGroup.getElements(); enumeration.hasMoreElements(); index++) {
+                            JRadioButton button = (JRadioButton) enumeration.nextElement();
+                            if (button.isSelected()) {
+                                tempCompressType = NBTComressType.values()[index];
+                                break;
+                            }
+                        }
+                    } catch (Exception ex) {
+                        Toolkit.getDefaultToolkit().beep();
+                    }
+                    // apply compress type
+                    NBTEditor.comressType = tempCompressType;
+                    // close modal window
+                    edit.dispose();
+                }
+            };
+            MouseAdapter cancelEvent = new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    // close modal window
+                    edit.dispose();
+                }
+            };
+
+            // init swing listener
+            KeyboardFocusManager.getCurrentKeyboardFocusManager().addKeyEventDispatcher(new KeyEventDispatcher() {
+                @Override
+                public boolean dispatchKeyEvent(KeyEvent event) {
+                    if (event.getKeyCode() == KeyEvent.VK_ESCAPE) {
+                        cancelEvent.mouseClicked(null);
+                        KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(this);
+                        return false;
+                    }
+                    if (event.getKeyCode() == KeyEvent.VK_ENTER) {
+                        okEvent.mouseClicked(null);
+                        KeyboardFocusManager.getCurrentKeyboardFocusManager().removeKeyEventDispatcher(this);
+                    }
+                    return false;
+                }
+            });
+            JButton cancel = new JButton("Cancel");
+            cancel.addMouseListener(cancelEvent);
+            JButton ok = new JButton("OK");
+            ok.addMouseListener(okEvent);
+
+            panel.setLayout(new BorderLayout() {
+                @Override
+                public void layoutContainer(Container target) {
+                    synchronized (target.getTreeLock()) {
+                        for (int i = 0; i < target.getComponentCount(); i++) {
+                            Component c = target.getComponent(i);
+                            int w = target.getWidth();
+                            int h = target.getHeight();
+
+                            if (i == 0) {
+                                c.setBounds(5, 5, w - 10, h - 40);
+                            }
+                            if (i == 1) {
+                                c.setBounds(w - 75 - 75, h - 25, 70, 20);
+                            }
+                            if (i == 2) {
+                                c.setBounds(w - 75, h - 25, 70, 20);
+                            }
+                        }
+                    }
+                }
+            });
+
+            { // create main panel & add buttons
+                JPanel contentPanel = new JPanel();
+                contentPanel.setLayout(new VerticalLayout());
+                for (JRadioButton button : buttonsList) {
+                    contentPanel.add(button);
+                }
+                panel.add(contentPanel);
+            }
+
+            panel.add(cancel);
+            panel.add(ok);
+
+            edit.add(panel);
+            edit.pack();
+
+            edit.setSize(new Dimension(350, 160));
+            edit.setLocationRelativeTo(NBTEditor.frame);
+            edit.setVisible(true);
+            return;
+        }
+
         //A lot of quick-and-dirty code.
         if (e.getSource() == NBTEditor.itemRename || e.getSource() == NBTEditor.buttonRename) {
             NBTEditor.nbtTree.startEditingAtPath(NBTEditor.nbtTree.getSelectionPath());
@@ -49,9 +188,9 @@ public class EventListener implements ActionListener {
             editor.setBackground(new Color(0, 0, 0, 0));
             editor.setOpaque(false);
             editor.setText(
-                    "<center><b>NBT Editor made by Victorious3 & steelswing.net</b></center><hr>" +
+                    "<center><b>NBT Editor made by Victorious3 & steelswing</b></center><hr>" +
                     "Version: " + NBTEditor.version + "<br/>" +
-                    "GitHub: <a href='https://github.com/Victorious3/NBT-Editor'>https://github.com/Victorious3/NBT-Editor</a><br/>" +
+                    "GitHub: <a href='https://github.com/steelswing/nbteditor'>https://github.com/steelswing/nbteditor</a><br/>" +
                     "Original GitHub: <a href='https://github.com/Victorious3/NBT-Editor'>https://github.com/Victorious3/NBT-Editor</a><br/>" +
                     "Uses a modified version of JNBT &copy <a href='http://jnbt.sourceforge.net/'>Graham Edgecombe</a><br/>" +
                     "<hr><center><a href='http://creativecommons.org/licenses/by-nc-sa/4.0/'><img src='http://i.creativecommons.org/l/by-nc-sa/4.0/88x31.png'/></a></center>"
